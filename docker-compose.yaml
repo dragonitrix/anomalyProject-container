@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  frontend:
+    restart: always
+    #container_name: anomaly-game
+    image: dragonitrix/anomaly-frontend
+    build:
+      context: ./frontend
+    ports:
+      - "20200:20200"
+  backend:
+    #container_name: anomaly-server
+    image: dragonitrix/anomaly-backend
+    build:
+      context: ./backend
+    ports:
+      - "20201:20201"
