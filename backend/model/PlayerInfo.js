@@ -2,8 +2,10 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 const InfoSchema = new Schema({
-    email: String,
-    name: String,
+    id: String,
+    nickname: String,
+    fullname: String,
+    faculty: String,
     uni: String,
 });
 

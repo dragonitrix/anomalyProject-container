@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 
 const AccountSchema = new Schema({
-    email: String,
+    id: String,
+    email:String,
     password: String,
     createDate: Date
 });

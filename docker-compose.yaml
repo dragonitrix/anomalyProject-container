@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   frontend:
-    restart: always
+    #restart: always
     #container_name: anomaly-game
     image: dragonitrix/anomaly-frontend
     build:
