@@ -166,7 +166,7 @@ app.post("/api/UpdatePlayerAnswer", async (req, res) => {
 	//}
 });
 
-app.post("/api/getQuestionID", async (req, res) => {
+app.post("/api/getQuestionIDs", async (req, res) => {
 	const { dimension } = req.body;
 
 	//console.log(req.body);
