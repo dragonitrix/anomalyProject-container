@@ -7,6 +7,7 @@ const InfoSchema = new Schema({
     fullname: String,
     faculty: String,
     uni: String,
+    evalStatus:[Boolean]
 });
 
 mongoose.model('PlayerInfos',InfoSchema);

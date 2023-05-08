@@ -5,6 +5,7 @@ const AccountSchema = new Schema({
     id: String,
     email:String,
     password: String,
+    groupid:String,
     createDate: Date
 });
 

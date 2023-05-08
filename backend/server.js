@@ -12,20 +12,21 @@ mongoose.connect(keys.mongoURI, {
 
 require("./model/PlayerAccount");
 require("./model/PlayerInfo");
-require("./model/PlayerScore");
 require("./model/Question");
+require("./model/EvalQuestion");
+require("./model/Answer");
 
 const Account = mongoose.model("PlayerAccounts");
 const Info = mongoose.model("PlayerInfos");
-const Score = mongoose.model("PlayerScore");
 const Question = mongoose.model("Questions");
+const Answer = mongoose.model("Answers");
+const EvalQuestion = mongoose.model("EvalQuestions");
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
 
 app.post("/api/register", async (req, res) => {
-	console.log(req.body);
-	const { email, password, name } = req.body;
+	const { email, password, name, groupid } = req.body;
 	if (!email || !password || !name) {
 		res.send("400: Bad request");
 		return;
@@ -46,47 +47,32 @@ app.post("/api/register", async (req, res) => {
 		id: id,
 		email: email,
 		password: password,
+		groupid: groupid ? groupid : "",
 		createDate: Date.now(),
 	});
 
 	await userAccount.save();
 
-	//create default setting
-	var userInfo = new Info({
-		id: id,
-		nickname: name,
-		fullname: "",
-		faculty: "",
-		uni: "",
-	});
-	await userInfo.save();
+	await initDefaultUserInfo(id, name);
 
-	var userScore = new Score({
-		id: id,
-		dimentions: [],
-		eval: [],
+	res.json({
+		id: userAccount.id,
+		groupid: groupid ? groupid : "",
 	});
-	await userScore.save();
-
-	res.send(id);
 });
 
 app.post("/api/login", async (req, res) => {
 	const { email, password } = req.body;
 
 	var userAccount = await Account.findOne({
-		email: email,
+		email: email
 	});
 
 	if (userAccount) {
+		if (!userAccount.groupid) {
+			userAccount.groupid = "";
+		}
 		res.json(userAccount);
-		//console.log(userAccount.password);
-		//console.log(password);
-		//if (userAccount.password == password) {
-		//	res.json(userAccount);
-		//} else {
-		//	res.send("401: Unauthorized");
-		//}
 	} else {
 		res.send("400: Bad request");
 	}
@@ -102,68 +88,40 @@ app.post("/api/getPlayerInfo", async (req, res) => {
 	if (info) {
 		res.json(info);
 	} else {
-		res.send("400: Bad request");
+		var _info = initDefaultUserInfo(id);
+		res.json(_info);
+		//res.send("400: Bad request");
 	}
 });
 
-app.post("/api/getPlayerScore", async (req, res) => {
-	const { id } = req.body;
+app.post("/api/updatePlayerInfo", async (req, res) => {
+	const { playerInfo } = req.body;
+	var _info;
+	try {
+		_info = JSON.parse(playerInfo);
+	} catch (error) {
+		res.send("update faill");
+		return;
+	}
 
-	var score = await Score.findOne({
+	const { id, nickname, fullname, faculty, uni, evalStatus } = _info;
+
+	var _playerInfo = await Answer.findOne({
 		id: id,
 	});
 
-	if (score) {
-		res.json(score);
+	if (_playerInfo) {
+		_playerInfo.id = id;
+		_playerInfo.nickname = nickname;
+		_playerInfo.fullname = fullname;
+		_playerInfo.faculty = faculty;
+		_playerInfo.uni = uni;
+		_playerInfo.evalStatus = evalStatus;
+		await _playerInfo.save();
 	} else {
-		res.send("400: Bad request");
+		await initDefaultUserInfo(id);
 	}
-});
-
-app.post("/api/UpdatePlayerAnswer", async (req, res) => {
-	const { id, answer } = req.body;
-
-	//console.log(req.body);
-	var _answer = JSON.parse(answer);
-
-	var playerScore = await Score.findOne({
-		id: id,
-	});
-
-	if (!playerScore) {
-		playerScore = new Score({
-			id: id,
-			dimentions: [],
-			eval: [],
-		});
-	} 
-	var dupe = false;
-	for (let i = 0; i < playerScore.dimensionAnswers.length; i++) {
-		dimensionAnswer = playerScore.dimensionAnswers[i];
-		if (dimensionAnswer.id == _answer.id) {
-			dupe = true;
-			dimensionAnswer = _answer;
-			break;
-		}
-	}
-
-	if (!dupe) {
-		playerScore.dimensionAnswers.push(_answer);
-	}
-
-	await playerScore.save();
-
-
 	res.send("update success");
-
-	//var score = await Score.findOne({
-	//	email: email,
-	//});
-	//if (score) {
-	//	res.json(score);
-	//}else{
-	//	res.send("400: Bad request");
-	//}
 });
 
 app.post("/api/getQuestionIDs", async (req, res) => {
@@ -207,52 +165,137 @@ app.post("/api/getQuestion", async (req, res) => {
 	}
 });
 
-app.post("/api/fetchPlayerScore", async (req, res) => {
-	const { id } = req.body;
+app.post("/api/getEvalIDs", async (req, res) => {
+	const { dimension } = req.body;
 
-	var questionCounts = [];
+	//console.log(req.body);
 
-	for (let i = 0; i < 6; i++) {
-		var count = await Question.count({
-			dimension: i + 1,
-		});
-		questionCounts.push(count);
-	}
-	//console.log(questionCounts);
-
-	var score = await Score.findOne({
-		id: id,
+	var questions = await EvalQuestion.find({
+		dimension: dimension,
 	});
-	//console.log(score);
 
-	var response = [];
-	for (let i = 0; i < 6; i++) {
-		var d = {
-			correct: 0,
-			total: questionCounts[i],
-		};
-		response.push(d);
-	}
-	//console.log(response);
+	//console.log(questions);
 
-	if (score) {
-		for (let i = 0; i < score.dimensionAnswers.length; i++) {
-			var answer = score.dimensionAnswers[i];
-			//console.log(answer);
-			if (answer.isCorrected) {
-				response[answer.dimension - 1].correct ++;
-				//console.log("add score");
-				//console.log(response[answer.dimension - 1]);
-			}
+	var ids = [];
+
+	if (questions) {
+		//res.json(questions);
+		//res.send(question.length);
+
+		for (let i = 0; i < questions.length; i++) {
+			ids.push(questions[i].id);
 		}
-		//console.log(response);
-		res.json(response);
+		res.json(ids);
 	} else {
 		res.send("400: Bad request");
 	}
 });
 
+app.post("/api/getEval", async (req, res) => {
+	const { id } = req.body;
+
+	var question = await EvalQuestion.findOne({
+		id: id,
+	});
+
+	if (question) {
+		res.json(question);
+		//res.send(question.length);
+	} else {
+		res.send("400: Bad request");
+	}
+});
+
+app.post("/api/getPlayerAnswerIDs", async (req, res) => {
+	const { playerID, dimension } = req.body;
+	//console.log("request answer for pID:" + playerID + " on " + dimension + " dimension");
+	var playerAnswers = await Answer.find({
+		playerID: playerID,
+		answerType: 1,
+		dimension: dimension,
+	});
+	var dimensionAnswerID = [];
+	if (playerAnswers) {
+		//dimensionAnswerID = playerScore.dimensionAnswers[dimension];
+		for (let i = 0; i < playerAnswers.length; i++) {
+			const element = playerAnswers[i];
+			dimensionAnswerID.push(element.questionID);
+		}
+		res.json(dimensionAnswerID);
+	} else {
+		res.send("400: Bad request");
+	}
+});
+
+app.post("/api/getPlayerAnswer", async (req, res) => {
+	const { playerID, questionID } = req.body;
+
+	var playerAnswer = await Answer.findOne({
+		playerID: playerID,
+		questionID: questionID,
+	});
+
+	if (playerAnswer) {
+		res.json(playerAnswer);
+	} else {
+		res.send("400: Bad request");
+	}
+});
+
+//{"playerID":"mkStmK1CDJtYn1JqobCWnY","answerType":1,"questionID":"gn4Pd385tT6tyyggFt3XUR","dimension":1,"answer":1,"isCorrected":false}
+
+app.post("/api/updatePlayerAnswer", async (req, res) => {
+	const { playerAnswer } = req.body;
+	var _answer;
+	try {
+		_answer = JSON.parse(playerAnswer);
+	} catch (error) {
+		res.send("update faill");
+		return;
+	}
+	const { playerID, questionID, answerType, dimension, answer, isCorrected } =
+		_answer;
+
+	var _playerAnswer = await Answer.findOne({
+		playerID: playerID,
+		questionID: questionID,
+		answerType: answerType,
+	});
+
+	if (_playerAnswer) {
+		_playerAnswer.answer = answer;
+		_playerAnswer.isCorrected = isCorrected;
+		await _playerAnswer.save();
+	} else {
+		_playerAnswer = new Answer({
+			playerID: playerID,
+			answerType: answerType,
+			questionID: questionID,
+			dimension: dimension,
+			answer: answer,
+			isCorrected: isCorrected,
+		});
+		await _playerAnswer.save();
+	}
+	res.send("update success");
+});
+
 app.listen(keys.port, () => {
-	console.log("v 1.5");
+	console.log("v 2");
 	console.log("Listening on port: " + keys.port);
 });
+
+async function initDefaultUserInfo(id, name) {
+	if (!name) name = "agent";
+	//create default setting
+	var userInfo = new Info({
+		id: id,
+		nickname: name,
+		fullname: "",
+		faculty: "",
+		uni: "",
+		evalStatus: [false, false, false, false, false, false],
+	});
+	await userInfo.save();
+	return userInfo;
+}
