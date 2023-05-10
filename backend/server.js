@@ -15,11 +15,13 @@ require("./model/PlayerInfo");
 require("./model/Question");
 require("./model/EvalQuestion");
 require("./model/Answer");
+require("./model/AchievementProgress");
 
 const Account = mongoose.model("PlayerAccounts");
 const Info = mongoose.model("PlayerInfos");
 const Question = mongoose.model("Questions");
 const Answer = mongoose.model("Answers");
+const AchievementProgress = mongoose.model("AchievementProgresses");
 const EvalQuestion = mongoose.model("EvalQuestions");
 
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -65,7 +67,7 @@ app.post("/api/login", async (req, res) => {
 	const { email, password } = req.body;
 
 	var userAccount = await Account.findOne({
-		email: email
+		email: email,
 	});
 
 	if (userAccount) {
@@ -106,7 +108,7 @@ app.post("/api/updatePlayerInfo", async (req, res) => {
 
 	const { id, nickname, fullname, faculty, uni, evalStatus } = _info;
 
-	var _playerInfo = await Answer.findOne({
+	var _playerInfo = await Info.findOne({
 		id: id,
 	});
 
@@ -276,6 +278,71 @@ app.post("/api/updatePlayerAnswer", async (req, res) => {
 			isCorrected: isCorrected,
 		});
 		await _playerAnswer.save();
+	}
+	res.send("update success");
+});
+
+app.post("/api/getAchievementIDs", async (req, res) => {
+	const { playerID } = req.body;
+	//console.log("request answer for pID:" + playerID + " on " + dimension + " dimension");
+	var achievements = await AchievementProgress.find({
+		playerID: playerID,
+	});
+	var achievementsIDs = [];
+	if (achievements) {
+		//dimensionAnswerID = playerScore.dimensionAnswers[dimension];
+		for (let i = 0; i < achievements.length; i++) {
+			const element = achievements[i];
+			achievementsIDs.push(element.achievementID);
+		}
+		res.json(achievementsIDs);
+	} else {
+		res.send("400: Bad request");
+	}
+});
+
+app.post("/api/getAchievementProgress", async (req, res) => {
+	const { playerID, achievementID } = req.body;
+
+	var achievement = await AchievementProgress.findOne({
+		playerID: playerID,
+		achievementID: achievementID,
+	});
+
+	if (achievement) {
+		res.json(achievement);
+	} else {
+		res.send("400: Bad request");
+	}
+});
+
+app.post("/api/updateAchievementProgress", async (req, res) => {
+	const { achievement } = req.body;
+	var obj;
+	try {
+		obj = JSON.parse(achievement);
+	} catch (error) {
+		res.send("update faill");
+		return;
+	}
+	const { playerID, achievementID, currentProgress} =
+		obj;
+
+	var _achievement = await AchievementProgress.findOne({
+		playerID: playerID,
+		achievementID: achievementID,
+	});
+
+	if (_achievement) {
+		_achievement.currentProgress = currentProgress;
+		await _achievement.save();
+	} else {
+		_achievement = new AchievementProgress({
+			playerID: playerID,
+			achievementID: achievementID,
+			currentProgress: currentProgress
+		});
+		await _achievement.save();
 	}
 	res.send("update success");
 });
