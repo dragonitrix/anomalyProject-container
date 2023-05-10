@@ -167,6 +167,30 @@ app.post("/api/getQuestion", async (req, res) => {
 	}
 });
 
+app.post("/api/getAllEvalIDs", async (req, res) => {
+	const { dimension } = req.body;
+
+	//console.log(req.body);
+
+	var questions = await EvalQuestion.find({});
+
+	//console.log(questions);
+
+	var ids = [];
+
+	if (questions) {
+		//res.json(questions);
+		//res.send(question.length);
+
+		for (let i = 0; i < questions.length; i++) {
+			ids.push(questions[i].id);
+		}
+		res.json(ids);
+	} else {
+		res.send("400: Bad request");
+	}
+});
+
 app.post("/api/getEvalIDs", async (req, res) => {
 	const { dimension } = req.body;
 
@@ -239,6 +263,26 @@ app.post("/api/getPlayerAnswer", async (req, res) => {
 
 	if (playerAnswer) {
 		res.json(playerAnswer);
+	} else {
+		res.send("400: Bad request");
+	}
+});
+
+app.post("/api/getPlayerEvalAnswerIDs", async (req, res) => {
+	const { playerID } = req.body;
+	//console.log("request answer for pID:" + playerID + " on " + dimension + " dimension");
+	var playerAnswers = await Answer.find({
+		playerID: playerID,
+		answerType: { $in: [2, 3] },
+	});
+	var dimensionAnswerID = [];
+	if (playerAnswers) {
+		//dimensionAnswerID = playerScore.dimensionAnswers[dimension];
+		for (let i = 0; i < playerAnswers.length; i++) {
+			const element = playerAnswers[i];
+			dimensionAnswerID.push(element.questionID);
+		}
+		res.json(dimensionAnswerID);
 	} else {
 		res.send("400: Bad request");
 	}
@@ -325,8 +369,7 @@ app.post("/api/updateAchievementProgress", async (req, res) => {
 		res.send("update faill");
 		return;
 	}
-	const { playerID, achievementID, currentProgress} =
-		obj;
+	const { playerID, achievementID, currentProgress } = obj;
 
 	var _achievement = await AchievementProgress.findOne({
 		playerID: playerID,
@@ -340,11 +383,43 @@ app.post("/api/updateAchievementProgress", async (req, res) => {
 		_achievement = new AchievementProgress({
 			playerID: playerID,
 			achievementID: achievementID,
-			currentProgress: currentProgress
+			currentProgress: currentProgress,
 		});
 		await _achievement.save();
 	}
 	res.send("update success");
+});
+
+app.post("/api/getPlayerEvalScore", async (req, res) => {
+	const { playerID, type } = req.body;
+
+	var scores = [];
+
+	for (let i = 0; i < 6; i++) {
+		var dimension = i + 1;
+		var playerAnswers = await Answer.find({
+			playerID: playerID,
+			answerType: type,
+			dimension:dimension
+		});
+		var evals = await EvalQuestion.find({
+			dimension:dimension
+		})
+
+		var score = 0;
+
+		if (playerAnswers) {
+			for (let j = 0; j < playerAnswers.length; j++) {
+				const answer = playerAnswers[j];
+				score += answer.answer;
+			}
+		}
+
+		scores.push(score/(evals.length * 4));
+	}
+
+	res.json({evalScore:scores});
+
 });
 
 app.listen(keys.port, () => {
