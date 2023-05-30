@@ -5,6 +5,13 @@ const bodyParser = require("body-parser");
 const keys = require("./config/keys.js");
 const app = express();
 const mongoose = require("mongoose");
+
+const ShortUniqueId = require("short-unique-id");
+const shortshort = new ShortUniqueId();
+
+const bcrypt = require("bcrypt");
+const saltRounds = 10;
+
 mongoose.connect(keys.mongoURI, {
 	useNewUrlParser: true,
 	useUnifiedTopology: true,
@@ -16,29 +23,47 @@ require("./model/Question");
 require("./model/EvalQuestion");
 require("./model/Answer");
 require("./model/AchievementProgress");
+require("./model/GroupID");
 
 const Account = mongoose.model("PlayerAccounts");
+const AdminAccount = mongoose.model("AdminAccounts");
 const Info = mongoose.model("PlayerInfos");
 const Question = mongoose.model("Questions");
 const Answer = mongoose.model("Answers");
 const AchievementProgress = mongoose.model("AchievementProgresses");
 const EvalQuestion = mongoose.model("EvalQuestions");
+const GroupID = mongoose.model("GroupIDs");
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
 
 app.post("/api/register", async (req, res) => {
-	const { email, password, name, groupid } = req.body;
+	const { email, password, name } = req.body;
+	var { groupid } = req.body;
 	if (!email || !password || !name) {
 		res.send("400: Bad request");
 		return;
 	}
 
+	if (!groupid) {
+		groupid = "";
+	} else {
+		var validID = await GroupID.findOne({
+			id: groupid,
+		});
+		if (!validID) {
+			console.log("invalid groupID");
+			groupid = "";
+		}
+	}
+
 	var userAccount = await Account.findOne({
 		email: email,
+		groupid: groupid,
 	});
 
 	if (userAccount) {
+		console.log("duplicate user");
 		res.send("406: Duplicate");
 		return;
 	}
@@ -49,7 +74,7 @@ app.post("/api/register", async (req, res) => {
 		id: id,
 		email: email,
 		password: password,
-		groupid: groupid ? groupid : "",
+		groupid: groupid,
 		createDate: Date.now(),
 	});
 
@@ -57,26 +82,61 @@ app.post("/api/register", async (req, res) => {
 
 	await initDefaultUserInfo(id, name);
 
+	console.log("register new user: " + userAccount.id);
 	res.json({
 		id: userAccount.id,
-		groupid: groupid ? groupid : "",
+		groupid: groupid,
 	});
 });
 
 app.post("/api/login", async (req, res) => {
 	const { email, password } = req.body;
+	var { groupid } = req.body;
+	if (!groupid) groupid = "";
 
-	var userAccount = await Account.findOne({
+	console.log("email: " + email);
+	console.log("groupid: " + groupid);
+
+	//check if in admin pool
+	var adminAccount = await AdminAccount.findOne({
 		email: email,
+		groupid: groupid,
 	});
-
-	if (userAccount) {
-		if (!userAccount.groupid) {
-			userAccount.groupid = "";
-		}
-		res.json(userAccount);
+	if (adminAccount) {
+		console.log("password: " + password);
+		console.log("hash: " + adminAccount.password);
+		bcrypt.compare(
+			password,
+			adminAccount.password,
+			async function (err, result) {
+				// result == true
+				if (result) {
+					console.log(" admin login ");
+					res.json(adminAccount);
+					return;
+				} else {
+					console.log("admin validation fail");
+					res.send("400: Bad request");
+					return;
+				}
+			}
+		);
+		return;
 	} else {
-		res.send("400: Bad request");
+		var userAccount = await Account.findOne({
+			email: email,
+			groupid: groupid,
+		});
+
+		if (userAccount) {
+			if (!userAccount.groupid) userAccount.groupid = "";
+			if (!userAccount.admin) userAccount.admin = false;
+			console.log("login attempted. ");
+			res.json(userAccount);
+		} else {
+			console.log("no userfound on database");
+			res.send("400: Bad request");
+		}
 	}
 });
 
@@ -400,32 +460,258 @@ app.post("/api/getPlayerEvalScore", async (req, res) => {
 		var playerAnswers = await Answer.find({
 			playerID: playerID,
 			answerType: type,
-			dimension:dimension
+			dimension: dimension,
 		});
 		var evals = await EvalQuestion.find({
-			dimension:dimension
-		})
+			dimension: dimension,
+		});
 
 		var score = 0;
 
 		if (playerAnswers) {
 			for (let j = 0; j < playerAnswers.length; j++) {
 				const answer = playerAnswers[j];
-				score += answer.answer;
+				score += answer.answer + 1;
 			}
 		}
 
-		scores.push(score/(evals.length * 4));
+		//console.log("score: " + score + " max: " + evals.length * 5);
+
+		scores.push(score / (evals.length * 5));
 	}
 
-	res.json({evalScore:scores});
+	res.json({ evalScore: scores });
+});
 
+app.post("/api/getPlayerIDs", async (req, res) => {
+	const { groupid } = req.body;
+	console.log(groupid);
+	//console.log("request answer for pID:" + playerID + " on " + dimension + " dimension");
+	var playerID = await Account.find({
+		groupid: groupid,
+	});
+	var playerIDs = [];
+	if (playerID) {
+		//dimensionAnswerID = playerScore.dimensionAnswers[dimension];
+		for (let i = 0; i < playerID.length; i++) {
+			const element = playerID[i];
+			playerIDs.push(element.id);
+		}
+		res.json(playerIDs);
+	} else {
+		res.send("400: Bad request");
+	}
+});
+
+app.post("/api/getPlayerScoreInfo", async (req, res) => {
+	const { playerid } = req.body;
+
+	//console.log("getPlayerScoreInfo");
+
+	//validate playerID
+	var playeraccount = await Account.findOne({
+		id: playerid,
+	});
+
+	if (!playeraccount) {
+		console.log("no account found");
+		res.send("400: Bad request");
+		return;
+	}
+
+	//var playerinfo = await Info.find({
+	//	id: playerid,
+	//});
+
+	//var playerAnswers = await Answer.find({
+	//	playerID: playerID,
+	//});
+
+	//console.log(playeraccount);
+	//console.log(playeraccount.email);
+
+	var playerScore = {
+		id: playerid,
+		name: "",
+		email: playeraccount.email,
+		testProgress: [],
+		evalProgress_pre: [],
+		evalProgress_post: [],
+	};
+
+	for (let i = 0; i < 6; i++) {
+		var dimension = i + 1;
+		var a = await Answer.find({
+			playerID: playerid,
+			dimension: dimension,
+		});
+		var q = await Question.find({
+			dimension: dimension,
+		});
+		var aCount = a.length;
+		var qCount = q.length;
+		playerScore.testProgress.push({
+			progress: aCount,
+			total: qCount,
+		});
+	}
+	for (let i = 0; i < 6; i++) {
+		var dimension = i + 1;
+		var playerAnswers = await Answer.find({
+			playerID: playerid,
+			answerType: 2,
+			dimension: dimension,
+		});
+		var evals = await EvalQuestion.find({
+			dimension: dimension,
+		});
+
+		var score = 0;
+
+		if (playerAnswers) {
+			for (let j = 0; j < playerAnswers.length; j++) {
+				const answer = playerAnswers[j];
+				score += answer.answer + 1;
+			}
+		}
+		playerScore.evalProgress_pre.push({
+			progress: score,
+			total: evals.length * 5,
+		});
+	}
+	for (let i = 0; i < 6; i++) {
+		var dimension = i + 1;
+		var playerAnswers = await Answer.find({
+			playerID: playerid,
+			answerType: 3,
+			dimension: dimension,
+		});
+		var evals = await EvalQuestion.find({
+			dimension: dimension,
+		});
+
+		var score = 0;
+
+		if (playerAnswers) {
+			for (let j = 0; j < playerAnswers.length; j++) {
+				const answer = playerAnswers[j];
+				score += answer.answer + 1;
+			}
+		}
+		playerScore.evalProgress_post.push({
+			progress: score,
+			total: evals.length * 5,
+		});
+	}
+
+	console.log("get score complete");
+	res.json(playerScore);
 });
 
 app.listen(keys.port, () => {
 	console.log("v 2");
 	console.log("Listening on port: " + keys.port);
+	regisAdmin();
+	regisAdmin1();
 });
+
+async function regisAdmin() {
+	var groupids = await GroupID.find();
+
+	var emails = [];
+	var passwords = [];
+
+	console.log("== groupid");
+	for (let i = 0; i < groupids.length; i++) {
+		const groupid = groupids[i];
+		console.log(groupid.id);
+
+		//gen email
+		var uuid = shortshort();
+		var email = "admin" + uuid + "@mail.com";
+		emails.push(email);
+		passwords.push(shortshort());
+	}
+
+	console.log("== email");
+	for (let i = 0; i < emails.length; i++) {
+		console.log(emails[i]);
+	}
+	console.log("== password");
+	for (let i = 0; i < passwords.length; i++) {
+		console.log(passwords[i]);
+	}
+
+	//console.log("== password hash");
+	//for (let i = 0; i < groupids.length; i++) {
+	//	//console.log(passwords[i]);
+	//	bcrypt.genSalt(saltRounds, function(err, salt) {
+	//		bcrypt.hash(passwords[i], salt, function(err, hash) {
+	//			// Store hash in your password DB.
+	//			passwordshash.push(hash);
+	//		});
+	//	});
+	//}
+
+	for (let i = 0; i < groupids.length; i++) {
+		const groupid = groupids[i];
+		const email = emails[i];
+		//const password = passwords[i];
+		var password = "";
+
+		bcrypt.genSalt(saltRounds, async function (err, salt) {
+			bcrypt.hash(passwords[i], salt, async function (err, hash) {
+				// Store hash in your password DB.
+				password = hash;
+				var id = short.generate();
+
+				var userAccount = new AdminAccount({
+					id: id,
+					email: email,
+					password: password,
+					groupid: groupid.id,
+					admin: true,
+					createDate: Date.now(),
+				});
+
+				await userAccount.save();
+				await initDefaultUserInfo(id, "admin");
+				console.log("register new user: " + userAccount.id);
+			});
+		});
+	}
+}
+
+async function regisAdmin1() {
+	//gen email
+	var uuid = shortshort();
+	var email = "admin" + uuid + "@mail.com";
+	console.log("email", email);
+	var password = shortshort();
+	var passwordhash = "";
+	console.log("pass", password);
+
+	bcrypt.genSalt(saltRounds, async function (err, salt) {
+		bcrypt.hash(password, salt, async function (err, hash) {
+			// Store hash in your password DB.
+			passwordhash = hash;
+			var id = short.generate();
+
+			var userAccount = new AdminAccount({
+				id: id,
+				email: email,
+				password: passwordhash,
+				groupid: "",
+				admin: true,
+				createDate: Date.now(),
+			});
+
+			await userAccount.save();
+			await initDefaultUserInfo(id, "admin");
+			console.log("register new user: " + userAccount.id);
+		});
+	});
+}
 
 async function initDefaultUserInfo(id, name) {
 	if (!name) name = "agent";

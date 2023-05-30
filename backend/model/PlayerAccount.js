@@ -6,8 +6,10 @@ const AccountSchema = new Schema({
     email:String,
     password: String,
     groupid:String,
+    admin: Boolean,
     createDate: Date
 });
 
 mongoose.model('PlayerAccounts',AccountSchema);
+mongoose.model('AdminAccounts',AccountSchema);
 
