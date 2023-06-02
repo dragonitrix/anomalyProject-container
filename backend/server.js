@@ -103,8 +103,8 @@ app.post("/api/login", async (req, res) => {
 		groupid: groupid,
 	});
 	if (adminAccount) {
-		console.log("password: " + password);
-		console.log("hash: " + adminAccount.password);
+		//console.log("password: " + password);
+		//console.log("hash: " + adminAccount.password);
 		bcrypt.compare(
 			password,
 			adminAccount.password,
@@ -608,11 +608,194 @@ app.post("/api/getPlayerScoreInfo", async (req, res) => {
 	res.json(playerScore);
 });
 
+app.post("/api/getOverallScore", async (req, res) => {
+	const { groupid } = req.body;
+
+	//hard coding getting data from achievement
+	missionUID = [
+		[
+			"3dpTiiCnZ9RR6nzXntk2DB", //D1
+			"gGuove6vaWsiKmercmJzxf",
+			"9x2EfuRJhYfT6phTZwDbSS",
+		],
+		[
+			"jjbxNCgdZPWaPxYPQC5o35", //D2
+			"8ge2gDyDwUtEYfCJ4u9btn",
+			"7V9Aj8KM3HMPoXsp2LrGjh",
+		],
+		[
+			"gieagNQB8xxYhNWHds85vd", //D3
+			"hxSjKQBAfgGM98vHqJ5EWe",
+			"bF3ca6QTti9JpF5gdQXYGp",
+		],
+		[
+			"rPaTur4X2bmo8hb5zvuBNq", //D4
+			"4MVHyAbgjVGUcoZ8wFaVTM",
+			"m1j5VhQLPQ6jQYeri7PPYB",
+		],
+		[
+			"dzyw463KZujvbkhTF273kJ", //D5
+			"uL5miRSqF6TFn7nYCFjz6q",
+			"5y6ULqs81KBJvpGh7LthWp",
+		],
+		[
+			"skBgLH3ohXQV8A8Pkmn1oi", //D6
+			"cDdrvpPezzSfFYGv3vD1z4",
+			"f3Ewv6DwJNqYzkChQstKo1",
+		],
+	];
+
+	var testDatas = [
+		[0, 0, 0, 0],
+		[0, 0, 0, 0],
+		[0, 0, 0, 0],
+		[0, 0, 0, 0],
+		[0, 0, 0, 0],
+		[0, 0, 0, 0],
+	];
+	var missionDatas = [
+		[0, 0, 0],
+		[0, 0, 0],
+		[0, 0, 0],
+		[0, 0, 0],
+		[0, 0, 0],
+		[0, 0, 0],
+	];
+	var evalCounts = [
+		[0, 0],
+		[0, 0],
+		[0, 0],
+		[0, 0],
+		[0, 0],
+		[0, 0],
+	];
+	var evalTotals = [
+		[0, 0],
+		[0, 0],
+		[0, 0],
+		[0, 0],
+		[0, 0],
+		[0, 0],
+	];
+	var evalAvgs = [
+		[0, 0],
+		[0, 0],
+		[0, 0],
+		[0, 0],
+		[0, 0],
+		[0, 0],
+	];
+
+	var players = await Account.find({
+		groupid: groupid,
+	});
+
+	if (players) {
+		//console.log(players);
+		var playerIDs = [];
+		for (var i = 0; i < players.length; i++) {
+			var player = players[i];
+			var playerID = player.id;
+			playerIDs.push(playerID);
+		}
+
+		//test filter
+		//var playerInfo = await Info.find({
+		//	id: { $in: playerIDs },
+		//});
+
+		for (var i = 0; i < playerIDs.length; i++) {
+			const playerID = playerIDs[i];
+
+			//test data
+			var answers = await Answer.find({
+				playerID: playerID,
+				answerType: 1,
+			});
+			var testcounts = [0, 0, 0, 0, 0, 0];
+
+			for (let j = 0; j < answers.length; j++) {
+				testcounts[answers[j].dimension - 1]++;
+			}
+			for (let j = 0; j < testcounts.length; j++) {
+				if (testcounts[j] >= 5) testDatas[j][0]++;
+				if (testcounts[j] >= 10) testDatas[j][1]++;
+				if (testcounts[j] >= 15) testDatas[j][2]++;
+				if (testcounts[j] >= 20) testDatas[j][3]++;
+			}
+
+			//mission data
+			var achievements = await AchievementProgress.find({
+				playerID: playerID,
+			});
+
+			for (let j = 0; j < achievements.length; j++) {
+				const achievement = achievements[j];
+				for (let k = 0; k < 6; k++) {
+					var aID = achievement.achievementID;
+					if (aID == missionUID[k][0]) missionDatas[k][0]++;
+					if (aID == missionUID[k][1]) missionDatas[k][1]++;
+					if (aID == missionUID[k][2]) missionDatas[k][2]++;
+				}
+			}
+
+			//eval data
+			var evals_pre = await Answer.find({
+				playerID: playerID,
+				answerType: 2,
+			});
+			var evals_post = await Answer.find({
+				playerID: playerID,
+				answerType: 3,
+			});
+
+			var prescore = [0, 0, 0, 0, 0, 0];
+			var postscore = [0, 0, 0, 0, 0, 0];
+
+			for (let j = 0; j < evals_pre.length; j++) {
+				prescore[evals_pre[j].dimension - 1] += evals_pre[j].answer;
+			}
+			for (let j = 0; j < evals_post.length; j++) {
+				postscore[evals_post[j].dimension - 1] += evals_post[j].answer;
+			}
+
+			//add evals count
+			//add total
+			for (let j = 0; j < prescore.length; j++) {
+				if (prescore[j] != 0) evalCounts[j][0]++;
+				evalTotals[j][0] += prescore[j];
+			}
+			for (let j = 0; j < postscore.length; j++) {
+				if (postscore[j] != 0) evalCounts[j][1]++;
+				evalTotals[j][1] += postscore[j];
+			}
+		}
+
+		for (let i = 0; i < evalTotals.length; i++) {
+			evalAvgs[i][0] =
+				Math.round((evalTotals[i][0] / evalCounts[i][0]) * 100) / 100;
+			evalAvgs[i][1] =
+				Math.round((evalTotals[i][1] / evalCounts[i][1]) * 100) / 100;
+		}
+
+		var msg = {
+			count:playerIDs.length,
+			testDatas: testDatas,
+			missionDatas: missionDatas,
+			evalCounts: evalCounts,
+			evalTotals: evalTotals,
+			evalAvgs: evalAvgs,
+		};
+		//console.log(msg);
+		res.json(msg);
+	} else {
+		res.send("400: Bad request");
+	}
+});
+
 app.listen(keys.port, () => {
 	console.log("v 2");
 	console.log("Listening on port: " + keys.port);
-	regisAdmin();
-	regisAdmin1();
 });
 
 async function regisAdmin() {
