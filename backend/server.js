@@ -19,20 +19,24 @@ mongoose.connect(keys.mongoURI, {
 
 require("./model/PlayerAccount");
 require("./model/PlayerInfo");
+require("./model/PlayerScore");
 require("./model/Question");
 require("./model/EvalQuestion");
 require("./model/Answer");
 require("./model/AchievementProgress");
 require("./model/GroupID");
+require("./model/GroupInfo");
 
 const Account = mongoose.model("PlayerAccounts");
 const AdminAccount = mongoose.model("AdminAccounts");
 const Info = mongoose.model("PlayerInfos");
+const PlayerScore = mongoose.model("PlayerScores");
 const Question = mongoose.model("Questions");
 const Answer = mongoose.model("Answers");
 const AchievementProgress = mongoose.model("AchievementProgresses");
 const EvalQuestion = mongoose.model("EvalQuestions");
 const GroupID = mongoose.model("GroupIDs");
+const GroupInfo = mongoose.model("GroupInfos");
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
@@ -302,7 +306,6 @@ app.post("/api/getPlayerAnswerIDs", async (req, res) => {
 	});
 	var dimensionAnswerID = [];
 	if (playerAnswers) {
-		//dimensionAnswerID = playerScore.dimensionAnswers[dimension];
 		for (let i = 0; i < playerAnswers.length; i++) {
 			const element = playerAnswers[i];
 			dimensionAnswerID.push(element.questionID);
@@ -337,7 +340,6 @@ app.post("/api/getPlayerEvalAnswerIDs", async (req, res) => {
 	});
 	var dimensionAnswerID = [];
 	if (playerAnswers) {
-		//dimensionAnswerID = playerScore.dimensionAnswers[dimension];
 		for (let i = 0; i < playerAnswers.length; i++) {
 			const element = playerAnswers[i];
 			dimensionAnswerID.push(element.questionID);
@@ -347,8 +349,6 @@ app.post("/api/getPlayerEvalAnswerIDs", async (req, res) => {
 		res.send("400: Bad request");
 	}
 });
-
-//{"playerID":"mkStmK1CDJtYn1JqobCWnY","answerType":1,"questionID":"gn4Pd385tT6tyyggFt3XUR","dimension":1,"answer":1,"isCorrected":false}
 
 app.post("/api/updatePlayerAnswer", async (req, res) => {
 	const { playerAnswer } = req.body;
@@ -383,6 +383,9 @@ app.post("/api/updatePlayerAnswer", async (req, res) => {
 		});
 		await _playerAnswer.save();
 	}
+
+	await ReCalculatePlayerScore(playerID);
+
 	res.send("update success");
 });
 
@@ -394,7 +397,6 @@ app.post("/api/getAchievementIDs", async (req, res) => {
 	});
 	var achievementsIDs = [];
 	if (achievements) {
-		//dimensionAnswerID = playerScore.dimensionAnswers[dimension];
 		for (let i = 0; i < achievements.length; i++) {
 			const element = achievements[i];
 			achievementsIDs.push(element.achievementID);
@@ -453,31 +455,51 @@ app.post("/api/updateAchievementProgress", async (req, res) => {
 app.post("/api/getPlayerEvalScore", async (req, res) => {
 	const { playerID, type } = req.body;
 
+	await ReCalculatePlayerScore(playerID);
+
 	var scores = [];
+	//
+	//for (let i = 0; i < 6; i++) {
+	//	var dimension = i + 1;
+	//	var playerAnswers = await Answer.find({
+	//		playerID: playerID,
+	//		answerType: type,
+	//		dimension: dimension,
+	//	});
+	//	var evals = await EvalQuestion.find({
+	//		dimension: dimension,
+	//	});
+	//
+	//	var score = 0;
+	//
+	//	if (playerAnswers) {
+	//		for (let j = 0; j < playerAnswers.length; j++) {
+	//			const answer = playerAnswers[j];
+	//			score += answer.answer + 1;
+	//		}
+	//	}
+	//
+	//	//console.log("score: " + score + " max: " + evals.length * 5);
+	//
+	//	scores.push(score / (evals.length * 5));
+	//}
 
-	for (let i = 0; i < 6; i++) {
-		var dimension = i + 1;
-		var playerAnswers = await Answer.find({
-			playerID: playerID,
-			answerType: type,
-			dimension: dimension,
-		});
-		var evals = await EvalQuestion.find({
-			dimension: dimension,
-		});
+	var playerScore = await PlayerScore.findOne({
+		playerID: playerID,
+	});
+	if (!playerScore) {
+		playerScore = await initDefaultPlayerScore(playerID);
+	}
 
-		var score = 0;
+	console.log("type:: " + type);
+	console.log(playerScore);
 
-		if (playerAnswers) {
-			for (let j = 0; j < playerAnswers.length; j++) {
-				const answer = playerAnswers[j];
-				score += answer.answer + 1;
-			}
-		}
+	if (type == 2) {
+		scores = playerScore.preEvalScores;
+	}
 
-		//console.log("score: " + score + " max: " + evals.length * 5);
-
-		scores.push(score / (evals.length * 5));
+	if (type == 3) {
+		scores = playerScore.postEvalScores;
 	}
 
 	res.json({ evalScore: scores });
@@ -492,7 +514,6 @@ app.post("/api/getPlayerIDs", async (req, res) => {
 	});
 	var playerIDs = [];
 	if (playerID) {
-		//dimensionAnswerID = playerScore.dimensionAnswers[dimension];
 		for (let i = 0; i < playerID.length; i++) {
 			const element = playerID[i];
 			playerIDs.push(element.id);
@@ -505,6 +526,8 @@ app.post("/api/getPlayerIDs", async (req, res) => {
 
 app.post("/api/getPlayerScoreInfo", async (req, res) => {
 	const { playerid } = req.body;
+
+	var startTime = Date.now();
 
 	//console.log("getPlayerScoreInfo");
 
@@ -519,97 +542,134 @@ app.post("/api/getPlayerScoreInfo", async (req, res) => {
 		return;
 	}
 
-	//var playerinfo = await Info.find({
-	//	id: playerid,
-	//});
 
-	//var playerAnswers = await Answer.find({
-	//	playerID: playerID,
-	//});
+	var playerScore = await PlayerScore.findOne({
+		playerID: playerid,
+	});
+
+	var playerScoreInfo = {
+		email: playeraccount.email,
+		playerScore: playerScore,
+	};
+
+	var now = Date.now();
+	var deltatime = now - startTime;
+
+	console.log("success retrive player log in " + deltatime + " ms");
+	res.json(playerScoreInfo);
 
 	//console.log(playeraccount);
 	//console.log(playeraccount.email);
 
-	var playerScore = {
-		id: playerid,
-		name: "",
-		email: playeraccount.email,
-		testProgress: [],
-		evalProgress_pre: [],
-		evalProgress_post: [],
-	};
+	//var playerScore = {
+	//	id: playerid,
+	//	name: "",
+	//	email: playeraccount.email,
+	//	testProgress: [],
+	//	evalProgress_pre: [],
+	//	evalProgress_post: [],
+	//};
+	//
+	//for (let i = 0; i < 6; i++) {
+	//	var dimension = i + 1;
+	//	var a = await Answer.find({
+	//		playerID: playerid,
+	//		dimension: dimension,
+	//	});
+	//	var q = await Question.find({
+	//		dimension: dimension,
+	//	});
+	//	var aCount = a.length;
+	//	var qCount = q.length;
+	//	playerScore.testProgress.push({
+	//		progress: aCount,
+	//		total: qCount,
+	//	});
+	//}
+	//for (let i = 0; i < 6; i++) {
+	//	var dimension = i + 1;
+	//	var playerAnswers = await Answer.find({
+	//		playerID: playerid,
+	//		answerType: 2,
+	//		dimension: dimension,
+	//	});
+	//	var evals = await EvalQuestion.find({
+	//		dimension: dimension,
+	//	});
+	//
+	//	var score = 0;
+	//
+	//	if (playerAnswers) {
+	//		for (let j = 0; j < playerAnswers.length; j++) {
+	//			const answer = playerAnswers[j];
+	//			score += answer.answer + 1;
+	//		}
+	//	}
+	//	playerScore.evalProgress_pre.push({
+	//		progress: score,
+	//		total: evals.length * 5,
+	//	});
+	//}
+	//for (let i = 0; i < 6; i++) {
+	//	var dimension = i + 1;
+	//	var playerAnswers = await Answer.find({
+	//		playerID: playerid,
+	//		answerType: 3,
+	//		dimension: dimension,
+	//	});
+	//	var evals = await EvalQuestion.find({
+	//		dimension: dimension,
+	//	});
+	//
+	//	var score = 0;
+	//
+	//	if (playerAnswers) {
+	//		for (let j = 0; j < playerAnswers.length; j++) {
+	//			const answer = playerAnswers[j];
+	//			score += answer.answer + 1;
+	//		}
+	//	}
+	//	playerScore.evalProgress_post.push({
+	//		progress: score,
+	//		total: evals.length * 5,
+	//	});
+	//}
+});
 
-	for (let i = 0; i < 6; i++) {
-		var dimension = i + 1;
-		var a = await Answer.find({
-			playerID: playerid,
-			dimension: dimension,
-		});
-		var q = await Question.find({
-			dimension: dimension,
-		});
-		var aCount = a.length;
-		var qCount = q.length;
-		playerScore.testProgress.push({
-			progress: aCount,
-			total: qCount,
-		});
+app.post("/api/getGroupInfo", async (req, res) => {
+	const { groupID } = req.body;
+
+	var groupInfo = await GroupInfo.findOne({
+		groupID: groupID,
+	});
+
+	if (groupInfo) {
+		res.json(groupInfo);
+	} else {
+		res.send("invalid data");
 	}
-	for (let i = 0; i < 6; i++) {
-		var dimension = i + 1;
-		var playerAnswers = await Answer.find({
-			playerID: playerid,
-			answerType: 2,
-			dimension: dimension,
-		});
-		var evals = await EvalQuestion.find({
-			dimension: dimension,
-		});
+});
 
-		var score = 0;
+app.post("/api/updateGroupDate", async (req, res) => {
+	const { groupID, date } = req.body;
 
-		if (playerAnswers) {
-			for (let j = 0; j < playerAnswers.length; j++) {
-				const answer = playerAnswers[j];
-				score += answer.answer + 1;
-			}
-		}
-		playerScore.evalProgress_pre.push({
-			progress: score,
-			total: evals.length * 5,
-		});
+	var groupInfo = await GroupInfo.findOne({
+		groupID: groupID,
+	});
+
+	if (groupInfo) {
+		//groupInfo.classStartTime = date
+		//await groupInfo.save();
+		res.json(groupInfo);
+	} else {
+		res.send("invalid data");
 	}
-	for (let i = 0; i < 6; i++) {
-		var dimension = i + 1;
-		var playerAnswers = await Answer.find({
-			playerID: playerid,
-			answerType: 3,
-			dimension: dimension,
-		});
-		var evals = await EvalQuestion.find({
-			dimension: dimension,
-		});
-
-		var score = 0;
-
-		if (playerAnswers) {
-			for (let j = 0; j < playerAnswers.length; j++) {
-				const answer = playerAnswers[j];
-				score += answer.answer + 1;
-			}
-		}
-		playerScore.evalProgress_post.push({
-			progress: score,
-			total: evals.length * 5,
-		});
-	}
-
-	console.log("get score complete");
-	res.json(playerScore);
 });
 
 app.post("/api/getOverallScore", async (req, res) => {
 	const { groupid } = req.body;
+
+	console.log("getGroupScore");
 
 	//hard coding getting data from achievement
 	missionUID = [
@@ -740,53 +800,53 @@ app.post("/api/getOverallScore", async (req, res) => {
 			}
 
 			//eval data
-			var evals_pre = await Answer.find({
+			var evalsAnswer_pre = await Answer.find({
 				playerID: playerID,
 				answerType: 2,
 			});
-			var evals_post = await Answer.find({
+			var evalsAnswer_post = await Answer.find({
 				playerID: playerID,
 				answerType: 3,
 			});
 
-			var prescore = [0, 0, 0, 0, 0, 0];
-			var postscore = [0, 0, 0, 0, 0, 0];
+			var playerScore = await PlayerScore.findOne({
+				playerID: playerID,
+			});
+			if (!playerScore) playerScore = await initDefaultPlayerScore(playerID);
 
-			for (let j = 0; j < evals_pre.length; j++) {
-				prescore[evals_pre[j].dimension - 1] += evals_pre[j].answer;
-			}
-			for (let j = 0; j < evals_post.length; j++) {
-				postscore[evals_post[j].dimension - 1] += evals_post[j].answer;
-			}
+			var prescore = playerScore.preEvalScores;
+			var postscore = playerScore.postEvalScores;
 
 			//add evals count
 			//add total
-			for (let j = 0; j < prescore.length; j++) {
-				if (prescore[j] != 0) evalCounts[j][0]++;
+			for (let j = 0; j < 6; j++) {
+				if (evalsAnswer_pre.length > 0) evalCounts[j][0]++;
 				evalTotals[j][0] += prescore[j];
-			}
-			for (let j = 0; j < postscore.length; j++) {
-				if (postscore[j] != 0) evalCounts[j][1]++;
+				if (evalsAnswer_post.length > 0) evalCounts[j][1]++;
 				evalTotals[j][1] += postscore[j];
 			}
 		}
 
-		for (let i = 0; i < evalTotals.length; i++) {
-			evalAvgs[i][0] =
-				Math.round((evalTotals[i][0] / evalCounts[i][0]) * 100) / 100;
-			evalAvgs[i][1] =
-				Math.round((evalTotals[i][1] / evalCounts[i][1]) * 100) / 100;
+		for (let i = 0; i < 6; i++) {
+			if (evalCounts[i][0] > 0) {
+				evalAvgs[i][0] =
+					Math.round((evalTotals[i][0] / evalCounts[i][0]) * 100) / 100;
+			}
+			if (evalCounts[i][1] > 0) {
+				evalAvgs[i][1] =
+					Math.round((evalTotals[i][1] / evalCounts[i][1]) * 100) / 100;
+			}
 		}
 
 		var msg = {
-			count:playerIDs.length,
+			count: playerIDs.length,
 			testDatas: testDatas,
 			missionDatas: missionDatas,
 			evalCounts: evalCounts,
 			evalTotals: evalTotals,
 			evalAvgs: evalAvgs,
 		};
-		//console.log(msg);
+		console.log(msg);
 		res.json(msg);
 	} else {
 		res.send("400: Bad request");
@@ -909,4 +969,131 @@ async function initDefaultUserInfo(id, name) {
 	});
 	await userInfo.save();
 	return userInfo;
+}
+
+async function initDefaultPlayerScore(id) {
+	//create default setting
+	var playerScore = new PlayerScore({
+		id: id,
+		missionScores: [0, 0, 0, 0, 0, 0],
+		testScores: [0, 0, 0, 0, 0, 0],
+		testAnswers: [0, 0, 0, 0, 0, 0],
+		preEvalScores: [0, 0, 0, 0, 0, 0],
+		postEvalScores: [0, 0, 0, 0, 0, 0],
+	});
+	await playerScore.save();
+	return playerScore;
+}
+
+app.post("/api/updatePlayerMissionScore", async (req, res) => {
+	const { playerID, dimension, score } = req.body;
+
+	var playerScore = await PlayerScore.findOne({
+		playerID: playerID,
+	});
+
+	if (!playerScore) {
+		playerScore = await initDefaultPlayerScore(playerID);
+	}
+	playerScore.missionScores[dimension - 1] = score;
+	await playerScore.save();
+	res.json(playerScore);
+});
+
+app.post("/api/updatePlayerTestScore", async (req, res) => {
+	const { playerID, dimension, score } = req.body;
+
+	var playerScore = await PlayerScore.findOne({
+		playerID: playerID,
+	});
+
+	if (!playerScore) {
+		playerScore = await initDefaultPlayerScore(playerID);
+	}
+
+	playerScore.testScores[dimension - 1] = score;
+	await playerScore.save();
+	res.json(playerScore);
+});
+
+app.post("/api/updatePlayerPreEvalScore", async (req, res) => {
+	const { playerID, dimension, score } = req.body;
+
+	var playerScore = await PlayerScore.findOne({
+		playerID: playerID,
+	});
+
+	if (!playerScore) {
+		playerScore = await initDefaultPlayerScore(playerID);
+	}
+
+	playerScore.preEvalScores[dimension - 1] = score;
+	await playerScore.save();
+	res.json(playerScore);
+});
+
+app.post("/api/updatePlayerPostEvalScore", async (req, res) => {
+	const { playerID, dimension, score } = req.body;
+
+	var playerScore = await PlayerScore.findOne({
+		playerID: playerID,
+	});
+
+	if (!playerScore) {
+		playerScore = await initDefaultPlayerScore(playerID);
+	}
+
+	playerScore.postEvalScores[dimension - 1] = score;
+	await playerScore.save();
+	res.json(playerScore);
+});
+
+async function ReCalculatePlayerScore(playerID) {
+	//console.log("ReCalculatePlayerScore");
+	var playerScore = await PlayerScore.findOne({
+		playerID: playerID,
+	});
+
+	if (!playerScore) {
+		playerScore = await initDefaultPlayerScore(playerID);
+	}
+
+	var id = playerID;
+
+	for (let i = 1; i <= 6; i++) {
+		var dimension = i;
+
+		var testAnswer = await Answer.find({
+			playerID: id,
+			answerType: 1,
+			dimension: dimension,
+		});
+		playerScore.testAnswers[dimension - 1] = testAnswer.length;
+
+		var testAnswerCorrected = await Answer.find({
+			playerID: id,
+			answerType: 1,
+			dimension: dimension,
+			isCorrected: true,
+		});
+		playerScore.testScores[dimension - 1] = testAnswerCorrected.length;
+
+		var preEvalAnswer = await Answer.find({
+			playerID: id,
+			answerType: 2,
+			dimension: dimension,
+			isCorrected: true,
+		});
+		playerScore.preEvalScores[dimension - 1] = preEvalAnswer.length;
+
+		var postEvalAnswer = await Answer.find({
+			playerID: id,
+			answerType: 3,
+			dimension: dimension,
+			isCorrected: true,
+		});
+		playerScore.postEvalScores[dimension - 1] = postEvalAnswer.length;
+	}
+	//console.log(playerScore);
+	await playerScore.save();
 }
