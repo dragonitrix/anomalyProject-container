@@ -17,6 +17,7 @@ mongoose.connect(keys.mongoURI, {
 	useUnifiedTopology: true,
 });
 
+
 require("./model/PlayerAccount");
 require("./model/PlayerInfo");
 require("./model/PlayerScore");
@@ -26,6 +27,7 @@ require("./model/Answer");
 require("./model/AchievementProgress");
 require("./model/GroupID");
 require("./model/GroupInfo");
+require("./model/Message");
 
 const Account = mongoose.model("PlayerAccounts");
 const AdminAccount = mongoose.model("AdminAccounts");
@@ -37,6 +39,7 @@ const AchievementProgress = mongoose.model("AchievementProgresses");
 const EvalQuestion = mongoose.model("EvalQuestions");
 const GroupID = mongoose.model("GroupIDs");
 const GroupInfo = mongoose.model("GroupInfos");
+const Message = mongoose.model("Messages");
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
@@ -491,8 +494,8 @@ app.post("/api/getPlayerEvalScore", async (req, res) => {
 		playerScore = await initDefaultPlayerScore(playerID);
 	}
 
-	console.log("type:: " + type);
-	console.log(playerScore);
+	//console.log("type:: " + type);
+	//console.log(playerScore);
 
 	if (type == 2) {
 		scores = playerScore.preEvalScores;
@@ -667,6 +670,9 @@ app.post("/api/updateGroupDate", async (req, res) => {
 });
 
 app.post("/api/getOverallScore", async (req, res) => {
+
+
+
 	const { groupid } = req.body;
 
 	console.log("getGroupScore");
@@ -706,52 +712,49 @@ app.post("/api/getOverallScore", async (req, res) => {
 	];
 
 	var testDatas = [
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
-		[0, 0, 0, 0],
+		[{}, {}, {}, {}],
+		[{}, {}, {}, {}],
+		[{}, {}, {}, {}],
+		[{}, {}, {}, {}],
+		[{}, {}, {}, {}],
+		[{}, {}, {}, {}],
 	];
 	var missionDatas = [
-		[0, 0, 0],
-		[0, 0, 0],
-		[0, 0, 0],
-		[0, 0, 0],
-		[0, 0, 0],
-		[0, 0, 0],
+		[{}, {}, {}],
+		[{}, {}, {}],
+		[{}, {}, {}],
+		[{}, {}, {}],
+		[{}, {}, {}],
+		[{}, {}, {}],
 	];
-	var evalCounts = [
-		[0, 0],
-		[0, 0],
-		[0, 0],
-		[0, 0],
-		[0, 0],
-		[0, 0],
+	var evalDatas = [
+		[{}, {}],
+		[{}, {}],
+		[{}, {}],
+		[{}, {}],
+		[{}, {}],
+		[{}, {}],
 	];
-	var evalTotals = [
-		[0, 0],
-		[0, 0],
-		[0, 0],
-		[0, 0],
-		[0, 0],
-		[0, 0],
-	];
-	var evalAvgs = [
-		[0, 0],
-		[0, 0],
-		[0, 0],
-		[0, 0],
-		[0, 0],
-		[0, 0],
-	];
+
+	//???
+	for (let i = 0; i < missionDatas.length; i++) {
+		for (let j = 0; j < missionDatas[i].length; j++) {
+			missionDatas[i][j] = {
+				count: 0,
+				avg: 0,
+				sd: 0
+			}
+		}
+	}
+	//console.log("missiondata b");
+	//console.log(missionDatas);
 
 	var players = await Account.find({
 		groupid: groupid,
 	});
 
 	if (players) {
-		//console.log(players);
+		console.log("players found: " + players.length);
 		var playerIDs = [];
 		for (var i = 0; i < players.length; i++) {
 			var player = players[i];
@@ -764,24 +767,31 @@ app.post("/api/getOverallScore", async (req, res) => {
 		//	id: { $in: playerIDs },
 		//});
 
+
+		var totalScore = {
+			mission: [[], [], [], [], [], []],
+			test: [[], [], [], [], [], []],
+			testAnswer: [[], [], [], [], [], []],
+			evalPre: [[], [], [], [], [], []],
+			evalPost: [[], [], [], [], [], []],
+		}
+
+		console.log("start preparing data");
+
 		for (var i = 0; i < playerIDs.length; i++) {
 			const playerID = playerIDs[i];
 
-			//test data
-			var answers = await Answer.find({
+			var playerScore = await PlayerScore.findOne({
 				playerID: playerID,
-				answerType: 1,
 			});
-			var testcounts = [0, 0, 0, 0, 0, 0];
+			if (!playerScore) playerScore = await initDefaultPlayerScore(playerID);
 
-			for (let j = 0; j < answers.length; j++) {
-				testcounts[answers[j].dimension - 1]++;
-			}
-			for (let j = 0; j < testcounts.length; j++) {
-				if (testcounts[j] >= 5) testDatas[j][0]++;
-				if (testcounts[j] >= 10) testDatas[j][1]++;
-				if (testcounts[j] >= 15) testDatas[j][2]++;
-				if (testcounts[j] >= 20) testDatas[j][3]++;
+			for (var j = 0; j < 6; j++) {
+				totalScore.mission[j].push(playerScore.missionScores[j]);
+				totalScore.test[j].push(playerScore.testScores[j]);
+				totalScore.testAnswer[j].push(playerScore.testAnswers[j]);
+				totalScore.evalPre[j].push(playerScore.preEvalScores[j]);
+				totalScore.evalPost[j].push(playerScore.postEvalScores[j]);
 			}
 
 			//mission data
@@ -793,60 +803,94 @@ app.post("/api/getOverallScore", async (req, res) => {
 				const achievement = achievements[j];
 				for (let k = 0; k < 6; k++) {
 					var aID = achievement.achievementID;
-					if (aID == missionUID[k][0]) missionDatas[k][0]++;
-					if (aID == missionUID[k][1]) missionDatas[k][1]++;
-					if (aID == missionUID[k][2]) missionDatas[k][2]++;
+					if (aID == missionUID[k][0]) missionDatas[k][0].count++;
+					if (aID == missionUID[k][1]) missionDatas[k][1].count++;
+					if (aID == missionUID[k][2]) missionDatas[k][2].count++;
 				}
 			}
+		}
+		console.log("finished preparing data");
 
-			//eval data
-			var evalsAnswer_pre = await Answer.find({
-				playerID: playerID,
-				answerType: 2,
-			});
-			var evalsAnswer_post = await Answer.find({
-				playerID: playerID,
-				answerType: 3,
-			});
+		for (var i = 0; i < 6; i++) {
 
-			var playerScore = await PlayerScore.findOne({
-				playerID: playerID,
-			});
-			if (!playerScore) playerScore = await initDefaultPlayerScore(playerID);
+			var test_5 = [];
+			var test_10 = [];
+			var test_15 = [];
+			var test_20 = [];
 
-			var prescore = playerScore.preEvalScores;
-			var postscore = playerScore.postEvalScores;
+			// var mission_try = [];
+			// var mission_finish = [];
+			// var mission_perfect = [];
 
-			//add evals count
-			//add total
-			for (let j = 0; j < 6; j++) {
-				if (evalsAnswer_pre.length > 0) evalCounts[j][0]++;
-				evalTotals[j][0] += prescore[j];
-				if (evalsAnswer_post.length > 0) evalCounts[j][1]++;
-				evalTotals[j][1] += postscore[j];
+			var eval_pre = [];
+			var eval_post = [];
+
+			for (var j = 0; j < playerIDs.length; j++) {
+				// test data
+				var testAnswer = totalScore.testAnswer[i][j];
+				var testScore = totalScore.test[i][j];
+				if (testAnswer >= 5) test_5.push(testScore)
+				if (testAnswer >= 10) test_10.push(testScore)
+				if (testAnswer >= 15) test_15.push(testScore)
+				if (testAnswer >= 20) test_20.push(testScore)
+
+				// //mission data
+				// var missionScore = totalScore.mission[i][j];
+				// if (missionScore) mission_try.push(missionScore);
+				// if (missionScore > 0) mission_finish.push(missionScore);
+				// if (missionScore >= 3) mission_perfect.push(missionScore);
+
+				eval_pre.push(totalScore.evalPre[i][j])
+				eval_post.push(totalScore.evalPost[i][j])
+			}
+
+			testDatas[i][0] = {
+				count: test_5.length,
+				avg: getAvg(test_5),
+				sd: getStandardDeviation(test_5)
+			}
+			testDatas[i][1] = {
+				count: test_10.length,
+				avg: getAvg(test_10),
+				sd: getStandardDeviation(test_10)
+			}
+			testDatas[i][2] = {
+				count: test_15.length,
+				avg: getAvg(test_15),
+				sd: getStandardDeviation(test_15)
+			}
+			testDatas[i][3] = {
+				count: test_20.length,
+				avg: getAvg(test_20),
+				sd: getStandardDeviation(test_20)
+			}
+
+			evalDatas[i][0] = {
+				count: getTotal(eval_pre),
+				avg: getAvg(eval_pre),
+				sd: getStandardDeviation(eval_pre)
+			}
+			evalDatas[i][1] = {
+				count: getTotal(eval_post),
+				avg: getAvg(eval_post),
+				sd: getStandardDeviation(eval_post)
 			}
 		}
 
-		for (let i = 0; i < 6; i++) {
-			if (evalCounts[i][0] > 0) {
-				evalAvgs[i][0] =
-					Math.round((evalTotals[i][0] / evalCounts[i][0]) * 100) / 100;
-			}
-			if (evalCounts[i][1] > 0) {
-				evalAvgs[i][1] =
-					Math.round((evalTotals[i][1] / evalCounts[i][1]) * 100) / 100;
-			}
-		}
+		//console.log(testDatas);
+		//console.log(missionDatas);
+		//console.log(evalDatas);
 
 		var msg = {
 			count: playerIDs.length,
+
 			testDatas: testDatas,
 			missionDatas: missionDatas,
-			evalCounts: evalCounts,
-			evalTotals: evalTotals,
-			evalAvgs: evalAvgs,
+			evalDatas: evalDatas,
 		};
-		console.log(msg);
+
+		console.log("finish getting group data");
+		//console.log(msg);
 		res.json(msg);
 	} else {
 		res.send("400: Bad request");
@@ -1096,4 +1140,42 @@ async function ReCalculatePlayerScore(playerID) {
 	}
 	//console.log(playerScore);
 	await playerScore.save();
+}
+
+app.post("/api/sendMessage", async (req, res) => {
+	const { playerID, groupID, text } = req.body;
+
+	var message = new Message({
+		id: short.generate(),
+		sessionID: short.generate(),
+		sessionType: 0,
+		playerID: playerID,
+		groupID: groupID,
+		timeStamp: Date.now(),
+		text: text
+	})
+	await message.save();
+
+	res.send("200: success");
+});
+
+function getTotal(array) {
+	if (!array || array.length === 0) { return 0; }
+	const n = array.length
+	const total = array.reduce((a, b) => a + b)
+	return total
+}
+
+function getAvg(array) {
+	if (!array || array.length === 0) { return 0; }
+	const n = array.length
+	const mean = array.reduce((a, b) => a + b) / n
+	return mean
+}
+
+function getStandardDeviation(array) {
+	if (!array || array.length === 0) { return 0; }
+	const n = array.length
+	const mean = array.reduce((a, b) => a + b) / n
+	return Math.sqrt(array.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / n)
 }
